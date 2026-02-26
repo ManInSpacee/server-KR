@@ -1,1 +1,0 @@
-print("Ass Evgen")
