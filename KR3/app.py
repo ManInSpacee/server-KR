@@ -1,11 +1,10 @@
 import os
 import secrets
-import time
 from datetime import datetime, timedelta
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -15,7 +14,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from models import User, UserInDB, UserBase, TodoCreate, TodoUpdate
+from models import User, UserInDB, TodoCreate, TodoUpdate
 from database import get_db_connection, create_tables
 
 load_dotenv()
@@ -31,20 +30,14 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBasic()
 limiter = Limiter(key_func=get_remote_address)
 
-# In-memory user DB для заданий 6.x/7.1
 fake_users_db: dict[str, UserInDB] = {}
 
-# Создаём таблицы SQLite при старте
 create_tables()
 
 
-# ==================== Настройка приложения (задание 6.3) ====================
+# ==================== Задание 6.3 — Настройка приложения ====================
 
-if MODE == "PROD":
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-else:
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.state.limiter = limiter
 
 
@@ -68,11 +61,15 @@ if MODE == "DEV":
     @app.get("/docs", include_in_schema=False)
     def custom_docs(credentials: HTTPBasicCredentials = Depends(security)):
         verify_docs_credentials(credentials)
-        return get_swagger_ui_html(openapi_url="/openapi.json", title="API Docs")
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title="API Docs",
+            swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.22.0/swagger-ui-bundle.js",
+            swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.22.0/swagger-ui.css",
+        )
 
     @app.get("/openapi.json", include_in_schema=False)
-    def custom_openapi(credentials: HTTPBasicCredentials = Depends(security)):
-        verify_docs_credentials(credentials)
+    def custom_openapi():
         return get_openapi(title="KR3 API", version="1.0.0", routes=app.routes)
 
 
@@ -107,17 +104,13 @@ def register(request: Request, user: User):
     if user.username in fake_users_db:
         raise HTTPException(status_code=409, detail="User already exists")
     hashed = pwd_context.hash(user.password)
-    fake_users_db[user.username] = UserInDB(
-        username=user.username,
-        hashed_password=hashed,
-        role=getattr(user, "role", "user"),
-    )
+    fake_users_db[user.username] = UserInDB(username=user.username, hashed_password=hashed)
     return JSONResponse(status_code=201, content={"message": "New user created"})
 
 
 @app.get("/login")
 def login(user: UserInDB = Depends(auth_user)):
-    return {"message": f"You got my secret, welcome"}
+    return {"message": "You got my secret, welcome"}
 
 
 # ==================== Задание 6.4 + 6.5 — JWT ====================
@@ -130,7 +123,7 @@ def create_jwt_token(username: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def get_current_user_jwt(request: Request) -> dict:
+def get_current_user_jwt(request: Request) -> UserInDB:
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token missing")
@@ -195,10 +188,7 @@ def register_with_role(username: str, password: str, role: str = "user"):
 
 
 @app.post("/admin/resource")
-def admin_create_resource(
-    title: str,
-    user: UserInDB = Depends(require_role("admin")),
-):
+def admin_create_resource(title: str, user: UserInDB = Depends(require_role("admin"))):
     return {"message": f"Resource '{title}' created by admin {user.username}"}
 
 
@@ -208,18 +198,12 @@ def user_read_resource(user: UserInDB = Depends(require_role("admin", "user"))):
 
 
 @app.put("/user/resource")
-def user_update_resource(
-    title: str,
-    user: UserInDB = Depends(require_role("admin", "user")),
-):
+def user_update_resource(title: str, user: UserInDB = Depends(require_role("admin", "user"))):
     return {"message": f"Resource updated to '{title}' by {user.username}"}
 
 
 @app.delete("/admin/resource")
-def admin_delete_resource(
-    resource_id: int,
-    user: UserInDB = Depends(require_role("admin")),
-):
+def admin_delete_resource(resource_id: int, user: UserInDB = Depends(require_role("admin"))):
     return {"message": f"Resource {resource_id} deleted by admin {user.username}"}
 
 
